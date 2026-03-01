@@ -1,41 +1,63 @@
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import { Card } from '../components/Card';
-import { Copy, BrainCircuit } from 'lucide-react';
-import { getStorage, Note, formatDate, truncate } from '../lib/storage';
+import { Copy, BrainCircuit, Loader2 } from 'lucide-react';
+import { getStorage, Note, formatDate } from '../lib/storage';
+
+// Helper function to handle text truncation within this file
+const truncate = (str: string, length: number = 100) => {
+    if (!str) return '';
+    return str.length > length ? str.substring(0, length) + '...' : str;
+};
 
 export default function BrainExport() {
+    const [mounted, setMounted] = useState(false);
     const [fullDump, setFullDump] = useState('');
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        const mission = getStorage('gedos-mission-v1.6', { primary: '', movingForward: '', ifWorked: '' });
-        const nextAction = getStorage('gedos-next-action', '');
-        const compass = getStorage('gedos-compass', '');
-        const priorities = getStorage('gedos-priorities', []);
-        const ideas = getStorage('gedos-ideas', []);
-        const journals = getStorage('gedos-journal', {} as Record<string, string>);
-        const history = getStorage('gedos-history', []);
-        const allNotes = getStorage('gedos_notes_v1', []);
+        const generateDump = async () => {
+            // Await all cloud/local data fetches
+            const mission = await getStorage('gedos-mission-v1.6', { primary: '', movingForward: '', ifWorked: '' });
+            const nextAction = await getStorage('gedos-next-action', '');
+            const compass = await getStorage('gedos-compass', '');
+            const priorities = await getStorage('gedos-priorities', []);
+            const ideas = await getStorage('gedos-ideas', []);
+            const journals = await getStorage('gedos-journal', {} as Record<string, string>);
+            const history = await getStorage('gedos-history', []);
+            const allNotes = await getStorage('gedos_notes_v1', []);
 
-        // Notes Logic
-        const weekStart = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        const weekNotes = allNotes.filter((n: Note) => new Date(n.createdAt).getTime() > weekStart);
-        const projCounts = weekNotes.reduce((acc: any, n: Note) => { acc[n.project] = (acc[n.project] || 0) + 1; return acc; }, {});
-        const typeCounts = weekNotes.reduce((acc: any, n: Note) => { acc[n.type] = (acc[n.type] || 0) + 1; return acc; }, {});
-        const noteList = weekNotes.map((n: Note) => `[${formatDate(n.createdAt)}] (${n.project}/${n.type}) ${truncate(n.text)}`).join('\n');
+            // Notes Logic - Now works because allNotes is no longer a Promise
+            const weekStart = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const weekNotes = allNotes.filter((n: Note) => new Date(n.createdAt).getTime() > weekStart);
 
-        // Journal Logic - Deterministic latest
-        const sortedJournalDates = Object.keys(journals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-        const latestJournal = sortedJournalDates.length > 0 ? journals[sortedJournalDates[0]] : "(none)";
+            const projCounts = weekNotes.reduce((acc: any, n: Note) => {
+                acc[n.project] = (acc[n.project] || 0) + 1;
+                return acc;
+            }, {});
 
-        // Momentum Logic
-        const todayStr = new Date().toLocaleDateString();
-        const completedToday = priorities.filter((p: any) => p.completed && p.completedAt && new Date(p.completedAt).toLocaleDateString() === todayStr).length;
-        const remaining = priorities.filter((p: any) => !p.completed).length;
+            const typeCounts = weekNotes.reduce((acc: any, n: Note) => {
+                acc[n.type] = (acc[n.type] || 0) + 1;
+                return acc;
+            }, {});
 
-        // Strict AI Format
-        const output = `GedOS Brain Dump — ${formatDate(new Date())}
+            const noteList = weekNotes.map((n: Note) =>
+                `[${formatDate(n.createdAt)}] (${n.project}/${n.type}) ${truncate(n.text, 60)}`
+            ).join('\n');
+
+            // Journal Logic
+            const sortedJournalDates = Object.keys(journals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+            const latestJournal = sortedJournalDates.length > 0 ? journals[sortedJournalDates[0]] : "(none)";
+
+            // Momentum Logic
+            const todayStr = new Date().toLocaleDateString();
+            const completedToday = priorities.filter((p: any) =>
+                p.completed && p.completedAt && new Date(p.completedAt).toLocaleDateString() === todayStr
+            ).length;
+            const remaining = priorities.filter((p: any) => !p.completed).length;
+
+            // Strict AI Format
+            const output = `GedOS Brain Dump — ${formatDate(new Date())}
 
 PRIMARY MISSION:
 ${mission.primary || "(none)"}
@@ -73,16 +95,20 @@ ${latestJournal}
 
 WEEKLY REVIEWS (Most Recent First):
 ${history.slice(0, 5).map((h: any) =>
-            `[${h.date}]
+                `[${h.date}]
 Wins: ${truncate(h.wins)}
 Challenges: ${truncate(h.challenges)}
 Lessons: ${truncate(h.lessons)}
 Ideas: ${truncate(h.ideas)}
 Direction: ${truncate(h.direction)}
 Spiritual: ${truncate(h.spiritual)}`
-        ).join('\n\n') || "(none)"}`;
+            ).join('\n\n') || "(none)"}`;
 
-        setFullDump(output);
+            setFullDump(output);
+            setMounted(true);
+        };
+
+        generateDump();
     }, []);
 
     const copyToClipboard = () => {
@@ -91,17 +117,43 @@ Spiritual: ${truncate(h.spiritual)}`
         setTimeout(() => setCopied(false), 2000);
     };
 
+    if (!mounted) {
+        return (
+            <div className="min-h-screen bg-black flex items-center justify-center">
+                <Loader2 className="text-[#CC5500] animate-spin" size={32} />
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-black text-zinc-100">
+        <div className="min-h-screen bg-black text-zinc-100 selection:bg-[#CC5500]/30">
             <Navbar />
             <main className="max-w-4xl mx-auto p-8 space-y-12">
-                <div className="flex justify-between items-end animate-in fade-in slide-in-from-bottom-4 transition-all">
-                    <h1 className="text-3xl font-bold flex items-center gap-3 tracking-tighter"><BrainCircuit className="text-[#CC5500]" /> AI Export</h1>
-                    <button onClick={copyToClipboard} className="bg-[#CC5500] text-white px-8 py-3 rounded-full font-bold text-xs uppercase transition-all hover:bg-[#e65f00] shadow-xl shadow-[#CC5500]/20">
-                        {copied ? 'Copied.' : 'Copy for AI'}
+                <div className="flex justify-between items-end animate-in fade-in slide-in-from-bottom-4 transition-all duration-700">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-bold flex items-center gap-3 tracking-tighter italic">
+                            <BrainCircuit className="text-[#CC5500]" size={28} /> AI Export
+                        </h1>
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-zinc-600 font-bold">
+                            Structured data for LLM context
+                        </p>
+                    </div>
+                    <button
+                        onClick={copyToClipboard}
+                        className="bg-[#CC5500] text-white px-10 py-4 rounded-full font-bold text-[10px] uppercase tracking-widest transition-all hover:bg-[#e65f00] hover:scale-105 active:scale-95 shadow-xl shadow-[#CC5500]/20"
+                    >
+                        {copied ? 'Copied to Clipboard' : 'Copy for AI Context'}
                     </button>
                 </div>
-                <Card><pre className="text-[11px] font-mono text-zinc-500 whitespace-pre-wrap leading-relaxed h-[65vh] overflow-y-auto custom-scrollbar p-2">{fullDump}</pre></Card>
+
+                <Card>
+                    <div className="relative group">
+                        <pre className="text-[11px] font-mono text-zinc-500 whitespace-pre-wrap leading-relaxed h-[65vh] overflow-y-auto custom-scrollbar p-4 bg-zinc-950/20 rounded-xl border border-white/5 group-hover:border-white/10 transition-colors">
+                            {fullDump}
+                        </pre>
+                        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-transparent to-black/20" />
+                    </div>
+                </Card>
             </main>
         </div>
     );

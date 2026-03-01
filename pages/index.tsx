@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import { Card } from '../components/Card';
 import { Trash2, CheckCircle2, Circle, Plus, Zap, Target } from 'lucide-react';
-import { getStorage, setStorage, migrateMissionData, formatDate } from '../lib/storage';
+import { getStorage, setStorage, formatDate } from '../lib/storage';
 
 // Unified Design Language Constants
 const fieldBase = "w-full bg-zinc-950/40 border border-white/5 rounded-xl px-4 py-3 text-sm transition-all duration-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-[#CC5500]/20 focus:border-[#CC5500]/40";
@@ -19,45 +19,59 @@ export default function Dashboard() {
   const [newPriority, setNewPriority] = useState('');
   const [ideas, setIdeas] = useState<any[]>([]);
   const [newIdea, setNewIdea] = useState('');
-  const [toast, setToast] = useState('');
 
   useEffect(() => {
-    migrateMissionData();
-    setMounted(true);
-    setMission(getStorage('gedos-mission-v1.6', { primary: '', movingForward: '', ifWorked: '' }));
-    setNextAction(getStorage('gedos-next-action', ''));
-    setCompass(getStorage('gedos-compass', ''));
-    setPriorities(getStorage('gedos-priorities', []));
-    setIdeas(getStorage('gedos-ideas', []));
-    const today = new Date().toLocaleDateString();
-    const savedJournal = getStorage('gedos-journal', {} as Record<string, string>);
-    setJournal(savedJournal[today] || '');
+    const initStorage = async () => {
+      // Step 1: Initialize Cloud/Local Data
+      // Removed migrateMissionData to fix the red underline error
+
+      const missionData = await getStorage('gedos-mission-v1.6', { primary: '', movingForward: '', ifWorked: '' });
+      const nextActionData = await getStorage('gedos-next-action', '');
+      const compassData = await getStorage('gedos-compass', '');
+      const prioritiesData = await getStorage('gedos-priorities', []);
+      const ideasData = await getStorage('gedos-ideas', []);
+
+      const today = new Date().toLocaleDateString();
+      const savedJournal = await getStorage('gedos-journal', {} as Record<string, string>);
+
+      // Step 2: Set State once data is received from the Promise
+      setMission(missionData);
+      setNextAction(nextActionData);
+      setCompass(compassData);
+      setPriorities(prioritiesData);
+      setIdeas(ideasData);
+      setJournal(savedJournal[today] || '');
+      setMounted(true);
+    };
+
+    initStorage();
   }, []);
 
-  const updateMission = (updates: any) => {
+  const updateMission = async (updates: any) => {
     const updated = { ...mission, ...updates };
     setMission(updated);
-    setStorage('gedos-mission-v1.6', updated);
+    await setStorage('gedos-mission-v1.6', updated); // Await cloud sync
   };
 
-  const addPriority = () => {
+  const addPriority = async () => {
     if (!newPriority.trim()) return;
     const updated = [...priorities, { id: Date.now(), text: newPriority.trim(), completed: false, createdAt: Date.now() }];
     setPriorities(updated);
-    setStorage('gedos-priorities', updated);
+    await setStorage('gedos-priorities', updated); // Await cloud sync
     setNewPriority('');
   };
 
-  const saveIdea = () => {
+  const saveIdea = async () => {
     if (!newIdea.trim()) return;
     const item = { id: Date.now(), text: newIdea.trim(), date: formatDate(new Date()) };
     const upd = [item, ...ideas];
     setIdeas(upd);
-    setStorage('gedos-ideas', upd);
+    await setStorage('gedos-ideas', upd); // Await cloud sync
     setNewIdea('');
   };
 
-  if (!mounted) return null;
+  if (!mounted) return null; // Prevents hydration error
+
   const todayStr = new Date().toLocaleDateString();
   const completedToday = priorities.filter(p => p.completed && p.completedAt && new Date(p.completedAt).toLocaleDateString() === todayStr).length;
   const remaining = priorities.filter(p => !p.completed).length;
@@ -67,12 +81,12 @@ export default function Dashboard() {
       <Navbar />
       <main className="max-w-6xl mx-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-12 gap-8 mt-4 pb-32">
 
-        {/* MISSION & NEXT ACTION */}
+        {/* LEFT COLUMN: MISSION & NEXT ACTION */}
         <div className="md:col-span-8 order-1 space-y-8">
           <Card title="Primary Mission This Week">
-            <div className="space-y-6">
+            <div className="space-y-6 text-left">
               <div>
-                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold">Primary Mission</label>
+                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold italic">Primary Mission</label>
                 <input
                   value={mission.primary}
                   onChange={(e) => updateMission({ primary: e.target.value })}
@@ -81,7 +95,7 @@ export default function Dashboard() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold">What am I trying to move forward?</label>
+                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold italic">What am I trying to move forward?</label>
                 <textarea
                   value={mission.movingForward}
                   onChange={(e) => updateMission({ movingForward: e.target.value })}
@@ -90,7 +104,7 @@ export default function Dashboard() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold">If this week worked, I would have:</label>
+                <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 block mb-3 font-bold italic">If this week worked, I would have:</label>
                 <textarea
                   value={mission.ifWorked}
                   onChange={(e) => updateMission({ ifWorked: e.target.value })}
@@ -102,11 +116,14 @@ export default function Dashboard() {
           </Card>
 
           <Card title="Next Action" description="The single next move to maintain momentum.">
-            <div className="relative group">
+            <div className="relative group text-left">
               <Target className="absolute left-4 top-1/2 -translate-y-1/2 text-[#CC5500]/40 group-focus-within:text-[#CC5500] transition-colors" size={18} />
               <input
                 value={nextAction}
-                onChange={(e) => { setNextAction(e.target.value); setStorage('gedos-next-action', e.target.value); }}
+                onChange={async (e) => {
+                  setNextAction(e.target.value);
+                  await setStorage('gedos-next-action', e.target.value);
+                }}
                 placeholder="The very next step is..."
                 className={`${inputBase} pl-12 bg-[#CC5500]/5 border-[#CC5500]/10 text-[#CC5500] placeholder:text-[#CC5500]/30`}
               />
@@ -116,32 +133,38 @@ export default function Dashboard() {
           <Card title="Daily Journal (Brain Dump)">
             <textarea
               value={journal}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const today = new Date().toLocaleDateString();
-                const all = getStorage('gedos-journal', {} as Record<string, string>);
+                const all = await getStorage('gedos-journal', {} as Record<string, string>);
                 all[today] = e.target.value;
                 setJournal(e.target.value);
-                setStorage('gedos-journal', all);
+                await setStorage('gedos-journal', all);
               }}
               placeholder="Unfiltered thoughts, reflections, or spiritual direction..."
               className={`${textareaBase} h-64 bg-zinc-950/20`}
             />
+            <div className="text-[10px] text-zinc-700 mt-4 uppercase tracking-[0.2em] text-left">
+              Auto-saved for {formatDate(new Date())}
+            </div>
           </Card>
         </div>
 
-        {/* COMPASS & PRIORITIES */}
+        {/* RIGHT COLUMN: COMPASS & PRIORITIES */}
         <div className="md:col-span-4 order-2 space-y-8">
           <Card title="Founder Compass" description="Strategic direction for right now.">
             <textarea
               value={compass}
-              onChange={(e) => { setCompass(e.target.value); setStorage('gedos-compass', e.target.value); }}
+              onChange={async (e) => {
+                setCompass(e.target.value);
+                await setStorage('gedos-compass', e.target.value);
+              }}
               placeholder="Clarity → Content → Authority"
               className={`${textareaBase} h-24 font-mono text-xs text-[#CC5500] bg-[#CC5500]/5 border-[#CC5500]/10`}
             />
           </Card>
 
           <Card title="Top Priorities">
-            <div className="space-y-4">
+            <div className="space-y-4 text-left">
               <div className="flex items-center justify-between border-b border-white/5 pb-4">
                 <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
                   <Zap size={12} className="text-[#CC5500]" />
@@ -158,16 +181,18 @@ export default function Dashboard() {
                 ) : (
                   priorities.map(p => (
                     <div key={p.id} className="flex items-center gap-3 group p-2 rounded-lg hover:bg-white/[0.02] transition-colors">
-                      <button onClick={() => {
+                      <button onClick={async () => {
                         const upd = priorities.map(x => x.id === p.id ? { ...x, completed: !x.completed, completedAt: !x.completed ? Date.now() : null } : x);
-                        setPriorities(upd); setStorage('gedos-priorities', upd);
+                        setPriorities(upd);
+                        await setStorage('gedos-priorities', upd);
                       }}>
                         {p.completed ? <CheckCircle2 size={18} className="text-[#CC5500]" /> : <Circle size={18} className="text-zinc-700 hover:text-zinc-500 transition-colors" />}
                       </button>
                       <span className={`text-xs flex-1 transition-all ${p.completed ? 'line-through text-zinc-600' : 'text-zinc-300'}`}>{p.text}</span>
-                      <button onClick={() => {
+                      <button onClick={async () => {
                         const upd = priorities.filter(x => x.id !== p.id);
-                        setPriorities(upd); setStorage('gedos-priorities', upd);
+                        setPriorities(upd);
+                        await setStorage('gedos-priorities', upd);
                       }} className="opacity-0 group-hover:opacity-100 text-zinc-700 hover:text-red-500 transition-all">
                         <Trash2 size={14} />
                       </button>
@@ -186,7 +211,7 @@ export default function Dashboard() {
                 />
                 <button
                   onClick={addPriority}
-                  className="absolute right-3 top-[calc(50%+8px)] -translate-y-1/2 p-1 text-zinc-500 hover:text-[#CC5500] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-[#CC5500] transition-colors mt-2"
                 >
                   <Plus size={18} />
                 </button>
@@ -195,7 +220,7 @@ export default function Dashboard() {
           </Card>
 
           <Card title="Idea Inbox">
-            <div className="relative mb-6">
+            <div className="relative mb-6 text-left">
               <input
                 value={newIdea}
                 onChange={(e) => setNewIdea(e.target.value)}
@@ -208,13 +233,17 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="space-y-3 max-h-80 overflow-y-auto custom-scrollbar">
+            <div className="space-y-3 max-h-80 overflow-y-auto custom-scrollbar text-left">
               {ideas.map(i => (
                 <div key={i.id} className="group bg-zinc-950/40 border border-white/5 rounded-xl p-4 hover:border-white/10 transition-all">
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">{i.date}</span>
                     <button
-                      onClick={() => { const upd = ideas.filter(x => x.id !== i.id); setIdeas(upd); setStorage('gedos-ideas', upd); }}
+                      onClick={async () => {
+                        const upd = ideas.filter(x => x.id !== i.id);
+                        setIdeas(upd);
+                        await setStorage('gedos-ideas', upd);
+                      }}
                       className="opacity-0 group-hover:opacity-100 text-zinc-800 hover:text-red-500 transition-all"
                     >
                       <Trash2 size={12} />
